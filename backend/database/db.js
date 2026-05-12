@@ -8,10 +8,10 @@ const pool = new Pool({
 
 async function ensureAdminUser() {
   try {
-    const { rows } = await exports.query("SELECT * FROM users WHERE username = $1", ["admin"]);
+    const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", ["admin"]);
     if (rows.length === 0) {
       const hashedPassword = await bcrypt.hash("harekrishan@123", 10);
-      await exports.query(
+      await pool.query(
         "INSERT INTO users (username, password, role) VALUES ($1, $2, 'admin')",
         ["admin", hashedPassword]
       );
