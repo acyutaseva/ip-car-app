@@ -3,7 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-require("./database/db");
+const db = require("./database/db");
+// Ensure admin user exists on server start
+db.ensureAdminUser();
 
 const authRoutes = require("./routes/auth");
 const carRoutes = require("./routes/cars");

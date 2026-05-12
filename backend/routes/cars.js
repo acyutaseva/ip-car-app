@@ -162,7 +162,7 @@ router.post(
   "/add",
   authMiddleware,
   photosUpload,
-  (req, res) => {
+  async (req, res) => {
     try {
       const {
         car_number,
@@ -179,53 +179,29 @@ router.post(
       const photoList = getUploadedPhotoNames(req.files);
       const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
 
-      db.run(
-        `
-        INSERT INTO cars
-        (car_number, owner_name, photo)
-        VALUES (?, ?, ?)
-      `,
-        [
-          car_number.toUpperCase(),
-          owner_name,
-          photos,
-        ],
-
-        function (err) {
-          if (err) {
-            return res.status(500).json({
-              message: "Insert error",
-              error: err.message,
-            });
-          }
-
-          const carId = this.lastID;
-
-          let phoneArray = [];
-
-          if (typeof phone_numbers === "string") {
-            phoneArray = JSON.parse(phone_numbers);
-          } else {
-            phoneArray = phone_numbers;
-          }
-
-          const stmt = db.prepare(`
-            INSERT INTO phone_numbers
-            (car_id, phone_number)
-            VALUES (?, ?)
-          `);
-
-          phoneArray.forEach((phone) => {
-            stmt.run(carId, phone);
-          });
-
-          stmt.finalize();
-
-          res.json({
-            message: "Car added successfully",
-          });
-        }
+      const insertCar = await db.query(
+        `INSERT INTO cars (car_number, owner_name, photo) VALUES ($1, $2, $3) RETURNING id`,
+        [car_number.toUpperCase(), owner_name, photos]
       );
+      const carId = insertCar.rows[0].id;
+
+      let phoneArray = [];
+      if (typeof phone_numbers === "string") {
+        phoneArray = JSON.parse(phone_numbers);
+      } else {
+        phoneArray = phone_numbers;
+      }
+
+      for (const phone of phoneArray) {
+        await db.query(
+          `INSERT INTO phone_numbers (car_id, phone_number) VALUES ($1, $2)`,
+          [carId, phone]
+        );
+      }
+
+      res.json({
+        message: "Car added successfully",
+      });
     } catch (error) {
       res.status(500).json({
         message: "Server error",
@@ -330,70 +306,31 @@ router.post(
 router.get(
   "/search/:query",
   authMiddleware,
-  (req, res) => {
+  async (req, res) => {
     try {
       const query = req.params.query.trim();
-
-      //
-      // Partial search
-      //
-
-      db.all(
-        `
-        SELECT * FROM cars
-        WHERE UPPER(car_number) LIKE UPPER(?)
-           OR UPPER(owner_name) LIKE UPPER(?)
-        ORDER BY car_number ASC
-      `,
-        [`%${query}%`, `%${query}%`],
-
-        (err, cars) => {
-          if (err) {
-            return res.status(500).json({
-              message: "Database error",
-            });
-          }
-
-          if (cars.length === 0) {
-            return res.json([]);
-          }
-
-          const result = [];
-
-          let completed = 0;
-
-          cars.forEach((car) => {
-            db.all(
-              `
-              SELECT phone_number
-              FROM phone_numbers
-              WHERE car_id = ?
-            `,
-              [car.id],
-
-              (err, phones) => {
-                result.push({
-                  ...car,
-                  photos: normalizePhotoList(car.photo),
-                  phone_numbers: phones.map(
-                    (p) => p.phone_number
-                  ),
-                });
-
-                completed++;
-
-                if (completed === cars.length) {
-                  res.json(result);
-                }
-              }
-            );
-          });
-        }
+      const { rows: cars } = await db.query(
+        `SELECT * FROM cars WHERE UPPER(car_number) LIKE UPPER($1) OR UPPER(owner_name) LIKE UPPER($2) ORDER BY car_number ASC`,
+        [`%${query}%`, `%${query}%`]
       );
+      if (cars.length === 0) {
+        return res.json([]);
+      }
+      const result = [];
+      for (const car of cars) {
+        const { rows: phones } = await db.query(
+          `SELECT phone_number FROM phone_numbers WHERE car_id = $1`,
+          [car.id]
+        );
+        result.push({
+          ...car,
+          photos: normalizePhotoList(car.photo),
+          phone_numbers: phones.map((p) => p.phone_number),
+        });
+      }
+      res.json(result);
     } catch (error) {
-      res.status(500).json({
-        message: "Server error",
-      });
+      res.status(500).json({ message: "Server error" });
     }
   }
 );
@@ -406,63 +343,30 @@ router.get(
   "/all",
   authMiddleware,
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
-      db.all(
-        `
-        SELECT * FROM cars
-        ORDER BY id DESC
-      `,
-
-        [],
-
-        (err, cars) => {
-          if (err) {
-            return res.status(500).json({
-              message: "Database error",
-            });
-          }
-
-          if (cars.length === 0) {
-            return res.json([]);
-          }
-
-          const result = [];
-
-          let completed = 0;
-
-          cars.forEach((car) => {
-            db.all(
-              `
-              SELECT phone_number
-              FROM phone_numbers
-              WHERE car_id = ?
-            `,
-              [car.id],
-
-              (err, phones) => {
-                result.push({
-                  ...car,
-                  photos: normalizePhotoList(car.photo),
-                  phone_numbers: phones.map(
-                    (p) => p.phone_number
-                  ),
-                });
-
-                completed++;
-
-                if (completed === cars.length) {
-                  res.json(result);
-                }
-              }
-            );
-          });
-        }
+      const { rows: cars } = await db.query(
+        `SELECT * FROM cars ORDER BY id DESC`,
+        []
       );
+      if (cars.length === 0) {
+        return res.json([]);
+      }
+      const result = [];
+      for (const car of cars) {
+        const { rows: phones } = await db.query(
+          `SELECT phone_number FROM phone_numbers WHERE car_id = $1`,
+          [car.id]
+        );
+        result.push({
+          ...car,
+          photos: normalizePhotoList(car.photo),
+          phone_numbers: phones.map((p) => p.phone_number),
+        });
+      }
+      res.json(result);
     } catch (error) {
-      res.status(500).json({
-        message: "Server error",
-      });
+      res.status(500).json({ message: "Server error" });
     }
   }
 );
@@ -475,63 +379,17 @@ router.delete(
   "/delete/:id",
   authMiddleware,
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     try {
       const carId = req.params.id;
-
-      //
-      // Delete phone numbers first
-      //
-
-      db.run(
-        `
-        DELETE FROM phone_numbers
-        WHERE car_id = ?
-      `,
-        [carId],
-
-        (err) => {
-          if (err) {
-            return res.status(500).json({
-              message: "Phone delete error",
-            });
-          }
-
-          //
-          // Delete car
-          //
-
-          db.run(
-            `
-            DELETE FROM cars
-            WHERE id = ?
-          `,
-            [carId],
-
-            function (err) {
-              if (err) {
-                return res.status(500).json({
-                  message: "Car delete error",
-                });
-              }
-
-              if (this.changes === 0) {
-                return res.status(404).json({
-                  message: "Car not found",
-                });
-              }
-
-              res.json({
-                message: "Car deleted successfully",
-              });
-            }
-          );
-        }
-      );
+      await db.query(`DELETE FROM phone_numbers WHERE car_id = $1`, [carId]);
+      const result = await db.query(`DELETE FROM cars WHERE id = $1`, [carId]);
+      if (result.rowCount === 0) {
+        return res.status(404).json({ message: "Car not found" });
+      }
+      res.json({ message: "Car deleted successfully" });
     } catch (error) {
-      res.status(500).json({
-        message: "Server error",
-      });
+      res.status(500).json({ message: "Server error" });
     }
   }
 );
@@ -545,139 +403,42 @@ router.put(
   authMiddleware,
   requireAdmin,
   photosUpload,
-
-  (req, res) => {
+  async (req, res) => {
     try {
       const carId = req.params.id;
-
-      const {
-        car_number,
-        owner_name,
-        phone_numbers,
-      } = req.body;
-
-      //
-      // Get existing car
-      //
-
-      db.get(
-        `
-        SELECT * FROM cars
-        WHERE id = ?
-      `,
-        [carId],
-
-        (err, existingCar) => {
-          if (err) {
-            return res.status(500).json({
-              message: "Database error",
-            });
-          }
-
-          if (!existingCar) {
-            return res.status(404).json({
-              message: "Car not found",
-            });
-          }
-
-          //
-          // Keep old photo if new not uploaded
-          //
-
-          const uploadedPhotos = getUploadedPhotoNames(req.files);
-          const existingPhotos = normalizePhotoList(existingCar.photo);
-          const photoList = uploadedPhotos.length > 0 ? uploadedPhotos : existingPhotos;
-          const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
-
-          //
-          // Update car
-          //
-
-          db.run(
-            `
-            UPDATE cars
-            SET car_number = ?,
-                owner_name = ?,
-                photo = ?
-            WHERE id = ?
-          `,
-            [
-              car_number.toUpperCase(),
-              owner_name,
-              photos,
-              carId,
-            ],
-
-            (err) => {
-              if (err) {
-                return res.status(500).json({
-                  message: "Update error",
-                });
-              }
-
-              //
-              // Delete old phone numbers
-              //
-
-              db.run(
-                `
-                DELETE FROM phone_numbers
-                WHERE car_id = ?
-              `,
-                [carId],
-
-                (err) => {
-                  if (err) {
-                    return res.status(500).json({
-                      message:
-                        "Phone delete error",
-                    });
-                  }
-
-                  //
-                  // Insert new phone numbers
-                  //
-
-                  let phoneArray = [];
-
-                  if (
-                    typeof phone_numbers ===
-                    "string"
-                  ) {
-                    phoneArray = JSON.parse(
-                      phone_numbers
-                    );
-                  } else {
-                    phoneArray = phone_numbers;
-                  }
-
-                  const stmt = db.prepare(`
-                    INSERT INTO phone_numbers
-                    (car_id, phone_number)
-                    VALUES (?, ?)
-                  `);
-
-                  phoneArray.forEach((phone) => {
-                    stmt.run(carId, phone);
-                  });
-
-                  stmt.finalize();
-
-                  res.json({
-                    message:
-                      "Car updated successfully",
-                  });
-                }
-              );
-            }
-          );
-        }
+      const { car_number, owner_name, phone_numbers } = req.body;
+      const { rows: carRows } = await db.query(
+        `SELECT * FROM cars WHERE id = $1`,
+        [carId]
       );
+      const existingCar = carRows[0];
+      if (!existingCar) {
+        return res.status(404).json({ message: "Car not found" });
+      }
+      const uploadedPhotos = getUploadedPhotoNames(req.files);
+      const existingPhotos = normalizePhotoList(existingCar.photo);
+      const photoList = uploadedPhotos.length > 0 ? uploadedPhotos : existingPhotos;
+      const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
+      await db.query(
+        `UPDATE cars SET car_number = $1, owner_name = $2, photo = $3 WHERE id = $4`,
+        [car_number.toUpperCase(), owner_name, photos, carId]
+      );
+      await db.query(`DELETE FROM phone_numbers WHERE car_id = $1`, [carId]);
+      let phoneArray = [];
+      if (typeof phone_numbers === "string") {
+        phoneArray = JSON.parse(phone_numbers);
+      } else {
+        phoneArray = phone_numbers;
+      }
+      for (const phone of phoneArray) {
+        await db.query(
+          `INSERT INTO phone_numbers (car_id, phone_number) VALUES ($1, $2)`,
+          [carId, phone]
+        );
+      }
+      res.json({ message: "Car updated successfully" });
     } catch (error) {
-      res.status(500).json({
-        message: "Server error",
-        error: error.message,
-      });
+      res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 );
