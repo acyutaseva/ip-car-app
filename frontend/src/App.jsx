@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import AddCar from "./pages/AddCar";
 import SearchCar from "./pages/SearchCar";
 import UserManagement from "./pages/UserManagement";
+import AdminCars from "./pages/AdminCars";
 import { isAdminUser } from "./utils/auth";
 
 function AdminRoute({ children }) {
@@ -32,6 +33,15 @@ function App() {
           element={
             <AdminRoute>
               <UserManagement />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/cars-admin"
+          element={
+            <AdminRoute>
+              <AdminCars />
             </AdminRoute>
           }
         />

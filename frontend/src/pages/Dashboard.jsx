@@ -1,9 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
+import { isAdminUser } from "../utils/auth";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const isAdmin = isAdminUser();
 
   return (
     <div className="app-shell">
@@ -26,6 +28,16 @@ export default function Dashboard() {
           <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Lookup</p>
           <p className="mt-2 text-2xl font-bold text-slate-900">🔍 Search Car</p>
         </button>
+
+        {isAdmin && (
+          <button
+            onClick={() => navigate("/cars-admin")}
+            className="surface-panel rounded-3xl p-6 text-left transition hover:-translate-y-0.5"
+          >
+            <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Admin</p>
+            <p className="mt-2 text-2xl font-bold text-slate-900">🚗 Manage Cars</p>
+          </button>
+        )}
       </div>
     </div>
   );

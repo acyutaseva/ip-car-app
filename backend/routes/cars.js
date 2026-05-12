@@ -7,6 +7,14 @@ const router = express.Router();
 const db = require("../database/db");
 const authMiddleware = require("../middleware/authMiddleware");
 
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  next();
+};
+
 //
 // MULTER CONFIG
 //
@@ -26,6 +34,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
+});
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
 });
 const photosUpload = upload.fields([
   { name: "photos", maxCount: 10 },
@@ -69,6 +81,77 @@ const getUploadedPhotoNames = (files) => {
   return [...(files.photos || []), ...(files.photo || [])]
     .map((file) => file.filename)
     .filter(Boolean);
+};
+
+const parseCsvLine = (line) => {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+
+    if (char === '"') {
+      const nextChar = line[i + 1];
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values;
+};
+
+const parseBulkImportCsv = (csvText) => {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return { rows: [], error: "CSV must include header and at least one data row" };
+  }
+
+  const headers = parseCsvLine(lines[0]).map((value) => value.toLowerCase());
+  const carIndex = headers.indexOf("car_number");
+  const ownerIndex = headers.indexOf("owner_name");
+  const phonesIndex = headers.indexOf("phone_numbers");
+
+  if (carIndex === -1 || ownerIndex === -1 || phonesIndex === -1) {
+    return { rows: [], error: "CSV headers must include car_number, owner_name, phone_numbers" };
+  }
+
+  const rows = lines.slice(1).map((line, rowOffset) => {
+    const cols = parseCsvLine(line);
+    const car_number = (cols[carIndex] || "").toUpperCase().trim();
+    const owner_name = (cols[ownerIndex] || "").trim();
+    const phones = (cols[phonesIndex] || "")
+      .split(/[|;]+/)
+      .map((phone) => phone.trim())
+      .filter(Boolean);
+
+    return {
+      rowNumber: rowOffset + 2,
+      car_number,
+      owner_name,
+      phones,
+    };
+  });
+
+  return { rows, error: null };
 };
 
 //
@@ -152,6 +235,90 @@ router.post(
   }
 );
 
+router.post(
+  "/bulk-import",
+  authMiddleware,
+  requireAdmin,
+  csvUpload.single("file"),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "CSV file is required (field: file)" });
+    }
+
+    const csvText = req.file.buffer.toString("utf8");
+    const { rows, error } = parseBulkImportCsv(csvText);
+
+    if (error) {
+      return res.status(400).json({ message: error });
+    }
+
+    const summary = {
+      total: rows.length,
+      inserted: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    const insertNext = (index) => {
+      if (index >= rows.length) {
+        return res.json({
+          message: "Bulk import complete",
+          summary,
+        });
+      }
+
+      const row = rows[index];
+
+      if (!row.car_number || !row.owner_name || row.phones.length === 0) {
+        summary.failed += 1;
+        summary.errors.push({
+          row: row.rowNumber,
+          message: "Missing car_number, owner_name, or phone_numbers",
+        });
+        return insertNext(index + 1);
+      }
+
+      db.run(
+        "INSERT INTO cars (car_number, owner_name, photo) VALUES (?, ?, ?)",
+        [row.car_number, row.owner_name, null],
+        function (insertErr) {
+          if (insertErr) {
+            summary.failed += 1;
+            summary.errors.push({
+              row: row.rowNumber,
+              message: insertErr.message,
+            });
+            return insertNext(index + 1);
+          }
+
+          const carId = this.lastID;
+          const stmt = db.prepare("INSERT INTO phone_numbers (car_id, phone_number) VALUES (?, ?)");
+
+          row.phones.forEach((phone) => {
+            stmt.run(carId, phone);
+          });
+
+          stmt.finalize((phoneErr) => {
+            if (phoneErr) {
+              summary.failed += 1;
+              summary.errors.push({
+                row: row.rowNumber,
+                message: phoneErr.message,
+              });
+              return insertNext(index + 1);
+            }
+
+            summary.inserted += 1;
+            return insertNext(index + 1);
+          });
+        }
+      );
+    };
+
+    return insertNext(0);
+  }
+);
+
 //
 // SEARCH CAR
 //
@@ -165,8 +332,7 @@ router.get(
   authMiddleware,
   (req, res) => {
     try {
-      const query =
-        req.params.query.toUpperCase();
+      const query = req.params.query.trim();
 
       //
       // Partial search
@@ -176,9 +342,10 @@ router.get(
         `
         SELECT * FROM cars
         WHERE UPPER(car_number) LIKE UPPER(?)
+           OR UPPER(owner_name) LIKE UPPER(?)
         ORDER BY car_number ASC
       `,
-        [`%${query}%`],
+        [`%${query}%`, `%${query}%`],
 
         (err, cars) => {
           if (err) {
@@ -238,6 +405,7 @@ router.get(
 router.get(
   "/all",
   authMiddleware,
+  requireAdmin,
   (req, res) => {
     try {
       db.all(
@@ -306,6 +474,7 @@ router.get(
 router.delete(
   "/delete/:id",
   authMiddleware,
+  requireAdmin,
   (req, res) => {
     try {
       const carId = req.params.id;
@@ -374,6 +543,7 @@ router.delete(
 router.put(
   "/edit/:id",
   authMiddleware,
+  requireAdmin,
   photosUpload,
 
   (req, res) => {

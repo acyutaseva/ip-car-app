@@ -13,7 +13,11 @@ export default function Navbar() {
   const isAdmin = isAdminUser();
 
   const links = isAdmin
-    ? [...baseLinks, { path: "/users", label: "Users", icon: "👤" }]
+    ? [
+        ...baseLinks,
+        { path: "/cars-admin", label: "Cars", icon: "🚗" },
+        { path: "/users", label: "Users", icon: "👤" },
+      ]
     : baseLinks;
 
   const isActive = (path) => location.pathname === path;
