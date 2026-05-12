@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -80,6 +81,25 @@ router.post("/users/:id/change-password", authMiddleware, requireAdmin, async (r
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
+});
+
+// ADMIN DB DUMP (for inspection)
+router.get("/admin/db_dump", authMiddleware, requireAdmin, (req, res) => {
+  // Dump all tables for inspection (users, cars, phone_numbers)
+  const dump = {};
+  db.all("SELECT * FROM users", [], (err, users) => {
+    if (err) return res.status(500).json({ message: "DB error (users)" });
+    dump.users = users;
+    db.all("SELECT * FROM cars", [], (err2, cars) => {
+      if (err2) return res.status(500).json({ message: "DB error (cars)" });
+      dump.cars = cars;
+      db.all("SELECT * FROM phone_numbers", [], (err3, phones) => {
+        if (err3) return res.status(500).json({ message: "DB error (phones)" });
+        dump.phone_numbers = phones;
+        res.json(dump);
+      });
+    });
+  });
 });
 
 // REGISTER

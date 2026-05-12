@@ -2,11 +2,35 @@ import { useEffect, useState } from "react";
 import API from "../services/api";
 import Header from "../components/Header";
 import Navbar from "../components/Navbar";
+import { isAdminUser } from "../utils/auth";
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [newUser, setNewUser] = useState({ username: "", password: "" });
   const [changePwd, setChangePwd] = useState({});
+  const [dbDump, setDbDump] = useState(null);
+  const [dumpError, setDumpError] = useState("");
+
+  const handleDownloadDump = () => {
+    if (!dbDump) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dbDump, null, 2));
+    const dlAnchor = document.createElement("a");
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", `db_dump_${new Date().toISOString().slice(0,19).replace(/[:T]/g, "-")}.json`);
+    document.body.appendChild(dlAnchor);
+    dlAnchor.click();
+    dlAnchor.remove();
+  };
+  const handleDbDump = async () => {
+    setDumpError("");
+    setDbDump(null);
+    try {
+      const res = await API.get("/auth/admin/db_dump");
+      setDbDump(res.data);
+    } catch (err) {
+      setDumpError(err?.response?.data?.message || "Failed to fetch DB dump");
+    }
+  };
 
   const fetchUsers = async () => {
     const res = await API.get("/auth/users");
@@ -38,6 +62,31 @@ const UserManagement = () => {
     <div className="app-shell">
       <Navbar />
       <Header title="User Management" />
+
+      {isAdminUser() && (
+        <section className="surface-panel mb-5 rounded-3xl p-4 md:p-6">
+          <button
+            className="rounded-xl bg-red-700 px-4 py-2.5 font-semibold text-white transition hover:bg-red-900"
+            onClick={handleDbDump}
+          >
+            Dump Database (Admin Only)
+          </button>
+          {dumpError && <div className="mt-2 text-red-600">{dumpError}</div>}
+          {dbDump && (
+            <>
+              <button
+                className="mb-2 rounded-lg bg-green-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-900"
+                onClick={handleDownloadDump}
+              >
+                Download Dump as JSON
+              </button>
+              <pre className="mt-2 max-h-96 overflow-auto rounded-xl bg-slate-900 p-4 text-xs text-green-200">
+                {JSON.stringify(dbDump, null, 2)}
+              </pre>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="surface-panel rounded-3xl p-4 md:p-6">
         <h2 className="mb-4 text-xl font-bold text-slate-900 md:text-2xl">Create User</h2>
