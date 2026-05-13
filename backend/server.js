@@ -14,7 +14,6 @@ const carRoutes = require("./routes/cars");
 
 const app = express();
 const uploadsPrimaryDir = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, "uploads"));
-const uploadsLegacyDir = path.resolve(process.cwd(), "uploads");
 
 const setUploadCacheHeaders = (res) => {
   res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
@@ -28,14 +27,6 @@ app.use("/api/cars", carRoutes);
 app.use(
   "/uploads",
   express.static(uploadsPrimaryDir, {
-    maxAge: "30d",
-    immutable: true,
-    setHeaders: setUploadCacheHeaders,
-  })
-);
-app.use(
-  "/uploads",
-  express.static(uploadsLegacyDir, {
     maxAge: "30d",
     immutable: true,
     setHeaders: setUploadCacheHeaders,

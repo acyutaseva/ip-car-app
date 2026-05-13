@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import API from "../services/api";
+import API, { UPLOADS_BASE_URL } from "../services/api";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
 
@@ -22,6 +22,7 @@ export default function AdminCars() {
     car_number: "",
     owner_name: "",
     phonesText: "",
+    existingPhotos: [],
     photos: [],
   });
   const [saving, setSaving] = useState(false);
@@ -29,6 +30,7 @@ export default function AdminCars() {
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
+  const imageBaseUrl = UPLOADS_BASE_URL;
 
   const totalPages = Math.max(1, Math.ceil(cars.length / PAGE_SIZE));
 
@@ -84,6 +86,7 @@ export default function AdminCars() {
       car_number: car.car_number || "",
       owner_name: car.owner_name || "",
       phonesText: (car.phone_numbers || []).join(", "),
+      existingPhotos: car.photos || [],
       photos: [],
     });
   };
@@ -94,6 +97,7 @@ export default function AdminCars() {
       car_number: "",
       owner_name: "",
       phonesText: "",
+      existingPhotos: [],
       photos: [],
     });
     setSaving(false);
@@ -123,6 +127,7 @@ export default function AdminCars() {
       formData.append("car_number", editForm.car_number.trim().toUpperCase());
       formData.append("owner_name", editForm.owner_name.trim());
       formData.append("phone_numbers", JSON.stringify(phone_numbers));
+      formData.append("existing_photos", JSON.stringify(editForm.existingPhotos));
 
       editForm.photos.forEach((photo) => {
         formData.append("photos", photo);
@@ -336,8 +341,38 @@ export default function AdminCars() {
                   setEditForm((prev) => ({ ...prev, photos: Array.from(e.target.files || []) }))
                 }
               />
+              {editForm.existingPhotos.length > 0 && (
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+                    Existing Images
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {editForm.existingPhotos.map((photoName) => (
+                      <div key={photoName} className="relative overflow-hidden rounded-lg border border-slate-200">
+                        <img
+                          src={`${imageBaseUrl}/${photoName}`}
+                          alt={photoName}
+                          className="h-20 w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              existingPhotos: prev.existingPhotos.filter((item) => item !== photoName),
+                            }))
+                          }
+                          className="absolute right-1 top-1 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-slate-500">
-                Uploading new images will replace existing images for this car.
+                Uploading new images will be added. Use Remove on existing images to delete them.
               </p>
             </div>
 

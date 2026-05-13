@@ -5,7 +5,7 @@ const fs = require("fs");
 const sharp = require("sharp");
 
 const router = express.Router();
-const uploadsDir = path.resolve(__dirname, "../uploads");
+const uploadsDir = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, "../uploads"));
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -96,6 +96,39 @@ const optimizeAndSavePhotos = async (files) => {
   }
 
   return savedFileNames;
+};
+
+const parseJsonArray = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const removePhotoFiles = async (fileNames) => {
+  for (const fileName of fileNames) {
+    try {
+      await fs.promises.unlink(path.join(uploadsDir, fileName));
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        // Continue request flow even if file cleanup fails.
+      }
+    }
+  }
 };
 
 const parseCsvLine = (line) => {
@@ -440,7 +473,7 @@ router.put(
   async (req, res) => {
     try {
       const carId = req.params.id;
-      const { car_number, owner_name, phone_numbers } = req.body;
+      const { car_number, owner_name, phone_numbers, existing_photos } = req.body;
       const { rows: carRows } = await db.query(
         `SELECT * FROM cars WHERE id = $1`,
         [carId]
@@ -451,12 +484,24 @@ router.put(
       }
       const uploadedPhotos = await optimizeAndSavePhotos(req.files);
       const existingPhotos = normalizePhotoList(existingCar.photo);
-      const photoList = uploadedPhotos.length > 0 ? uploadedPhotos : existingPhotos;
+      const retainedExistingPhotos = parseJsonArray(existing_photos) ?? existingPhotos;
+      const safeRetainedExistingPhotos = retainedExistingPhotos.filter((photoName) =>
+        existingPhotos.includes(photoName)
+      );
+      const removedPhotos = existingPhotos.filter(
+        (photoName) => !safeRetainedExistingPhotos.includes(photoName)
+      );
+      const photoList = [...safeRetainedExistingPhotos, ...uploadedPhotos].filter(
+        (value, index, arr) => arr.indexOf(value) === index
+      );
       const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
       await db.query(
         `UPDATE cars SET car_number = $1, owner_name = $2, photo = $3 WHERE id = $4`,
         [car_number.toUpperCase(), owner_name, photos, carId]
       );
+      if (removedPhotos.length > 0) {
+        await removePhotoFiles(removedPhotos);
+      }
       await db.query(`DELETE FROM phone_numbers WHERE car_id = $1`, [carId]);
       let phoneArray = [];
       if (typeof phone_numbers === "string") {
