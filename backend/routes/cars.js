@@ -296,14 +296,35 @@ router.post(
         }
 
         try {
-          // Insert car
-          const carResult = await db.query(
-            "INSERT INTO cars (car_number, owner_name, photo) VALUES ($1, $2, $3) RETURNING id",
-            [row.car_number, row.owner_name, null]
+          // Check if car exists
+          const carCheck = await db.query(
+            "SELECT id FROM cars WHERE car_number = $1",
+            [row.car_number]
           );
-          const carId = carResult.rows[0].id;
 
-          // Insert phone numbers
+          let carId;
+          if (carCheck.rows.length > 0) {
+            // Update owner_name if car exists
+            carId = carCheck.rows[0].id;
+            await db.query(
+              "UPDATE cars SET owner_name = $1 WHERE id = $2",
+              [row.owner_name, carId]
+            );
+            // Delete old phone numbers
+            await db.query(
+              "DELETE FROM phone_numbers WHERE car_id = $1",
+              [carId]
+            );
+          } else {
+            // Insert new car
+            const carResult = await db.query(
+              "INSERT INTO cars (car_number, owner_name, photo) VALUES ($1, $2, $3) RETURNING id",
+              [row.car_number, row.owner_name, null]
+            );
+            carId = carResult.rows[0].id;
+          }
+
+          // Insert new phone numbers
           for (const phone of row.phones) {
             await db.query(
               "INSERT INTO phone_numbers (car_id, phone_number) VALUES ($1, $2)",
