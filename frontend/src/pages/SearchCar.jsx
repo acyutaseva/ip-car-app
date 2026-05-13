@@ -124,19 +124,21 @@ export default function SearchCar() {
                 </div>
               )}
 
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="mb-1 text-2xl font-bold text-slate-900">{car.car_number}</h2>
-                  <p className="text-slate-600">{car.owner_name}</p>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <h2 className="truncate text-2xl font-bold text-slate-900">{car.car_number}</h2>
+                  <p className="truncate text-sm text-slate-600">{car.owner_name}</p>
                 </div>
 
                 {isAdmin && (
                   <button
                     onClick={() => handleDeleteCar(car.id, car.car_number)}
                     disabled={deletingId === car.id}
-                    className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label={`Delete car ${car.car_number}`}
+                    title="Delete car"
+                    className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-rose-600 text-sm text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {deletingId === car.id ? "Deleting..." : "Delete Car"}
+                    {deletingId === car.id ? "…" : "🗑"}
                   </button>
                 )}
               </div>
