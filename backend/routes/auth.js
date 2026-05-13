@@ -128,7 +128,16 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const userResult = await db.query("SELECT * FROM users WHERE username = $1", [username]);
+    const normalizedUsername = username.trim();
+    if (!normalizedUsername) {
+      return res.status(400).json({
+        message: "Username and password required",
+      });
+    }
+
+    const userResult = await db.query("SELECT * FROM users WHERE LOWER(username) = LOWER($1)", [
+      normalizedUsername,
+    ]);
     const user = userResult.rows[0];
     if (!user) {
       return res.status(401).json({

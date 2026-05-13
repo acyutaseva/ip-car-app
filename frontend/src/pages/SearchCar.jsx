@@ -122,10 +122,6 @@ export default function SearchCar() {
                     />
                   ))}
                 </div>
-              ) : (
-                <div className="mb-4 flex h-48 w-full items-center justify-center rounded-2xl bg-slate-200 text-slate-500">
-                  No Image
-                </div>
               )}
 
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -149,11 +145,11 @@ export default function SearchCar() {
                 {(car.phone_numbers || []).map((phone, index) => (
                   <div
                     key={index}
-                    className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 md:flex-row md:items-center md:justify-between"
+                    className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3"
                   >
                     <span className="font-medium text-slate-900">{phone}</span>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-shrink-0 gap-2">
                       <a href={`tel:${phone}`} className="rounded-xl bg-emerald-500 px-3 py-2 text-sm text-white">
                         Call
                       </a>
