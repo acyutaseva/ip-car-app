@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import API, { UPLOADS_BASE_URL } from "../services/api";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
+import CarCard from "../components/CarCard";
+
+const PAGE_SIZE = 12;
 
 const parsePhoneInput = (value) =>
   value
@@ -24,6 +27,10 @@ export default function SearchCar() {
   });
   const [saving, setSaving] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const searchAbortRef = useRef(null);
 
   const imageBaseUrl = UPLOADS_BASE_URL;
 
@@ -33,36 +40,87 @@ export default function SearchCar() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!search.trim()) {
       setCars([]);
+      setOffset(0);
+      setHasMore(false);
       return;
     }
 
     const timer = setTimeout(() => {
-      searchCars(search);
+      searchCars(search, { reset: true });
     }, 400);
 
     return () => clearTimeout(timer);
   }, [search]);
 
-  const searchCars = async (query) => {
-    try {
-      setLoading(true);
-      const res = await API.get(`/cars/search/${query}`);
-      setCars(res.data);
+  const searchCars = async (query, options = {}) => {
+    const { reset = false } = options;
+    const nextOffset = reset ? 0 : offset;
+    let controller = null;
 
-      let updatedSearches = [query, ...recentSearches.filter((s) => s !== query)];
-      updatedSearches = updatedSearches.slice(0, 5);
-      setRecentSearches(updatedSearches);
-      localStorage.setItem("recentSearches", JSON.stringify(updatedSearches));
+    try {
+      if (reset) {
+        if (searchAbortRef.current) {
+          searchAbortRef.current.abort();
+        }
+        controller = new AbortController();
+        searchAbortRef.current = controller;
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const res = await API.get(`/cars/search/${query}`, {
+        params: {
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        },
+        signal: controller ? controller.signal : undefined,
+      });
+      const payload = res.data?.data || [];
+      const pageHasMore = Boolean(res.data?.pagination?.hasMore);
+
+      if (reset) {
+        setCars(payload);
+      } else {
+        setCars((prev) => [...prev, ...payload]);
+      }
+      setOffset(nextOffset + payload.length);
+      setHasMore(pageHasMore);
+
+      if (reset) {
+        let updatedSearches = [query, ...recentSearches.filter((s) => s !== query)];
+        updatedSearches = updatedSearches.slice(0, 5);
+        setRecentSearches(updatedSearches);
+        localStorage.setItem("recentSearches", JSON.stringify(updatedSearches));
+      }
     } catch (error) {
+      if (error?.code === "ERR_CANCELED" || error?.name === "CanceledError") {
+        return;
+      }
       console.log(error);
     } finally {
-      setLoading(false);
+      if (controller && searchAbortRef.current === controller) {
+        searchAbortRef.current = null;
+      }
+      if (reset) {
+        setLoading(false);
+      } else {
+        setLoadingMore(false);
+      }
     }
   };
 
-  const handleDeleteCar = async (carId, carNumber) => {
+  const handleDeleteCar = useCallback(async (carId, carNumber) => {
     const confirmed = window.confirm(`Delete car ${carNumber}?`);
 
     if (!confirmed) {
@@ -78,9 +136,9 @@ export default function SearchCar() {
     } finally {
       setDeletingId(null);
     }
-  };
+  }, []);
 
-  const openEditModal = (car) => {
+  const openEditModal = useCallback((car) => {
     setEditingCar(car);
     setEditForm({
       car_number: car.car_number || "",
@@ -88,7 +146,11 @@ export default function SearchCar() {
       phonesText: (car.phone_numbers || []).join(", "),
       photos: [],
     });
-  };
+  }, []);
+
+  const handlePreviewImage = useCallback((src, alt) => {
+    setPreviewImage({ src, alt });
+  }, []);
 
   const closeEditModal = () => {
     setEditingCar(null);
@@ -132,7 +194,7 @@ export default function SearchCar() {
 
       await API.put(`/cars/edit/${editingCar.id}`, formData);
 
-      await searchCars(search);
+      await searchCars(search, { reset: true });
       closeEditModal();
     } catch (error) {
       alert("Failed to update car");
@@ -180,90 +242,32 @@ export default function SearchCar() {
 
         <div className="space-y-4">
           {cars.map((car) => (
-            <div key={car.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-              {(car.photos || []).length > 0 && (
-                <div className="mb-4 grid grid-cols-2 gap-2">
-                  {car.photos.map((photoName, photoIndex) => (
-                    <button
-                      key={`${car.id}-${photoName}-${photoIndex}`}
-                      type="button"
-                      onClick={() =>
-                        setPreviewImage({
-                          src: `${imageBaseUrl}/${photoName}`,
-                          alt: `${car.car_number}-${photoIndex + 1}`,
-                        })
-                      }
-                      className="overflow-hidden rounded-2xl"
-                    >
-                      <img
-                        src={`${imageBaseUrl}/${photoName}`}
-                        alt={`${car.car_number}-${photoIndex + 1}`}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-40 w-full object-cover transition hover:scale-[1.02] md:h-48"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <h2 className="truncate text-2xl font-bold text-slate-900">{car.car_number}</h2>
-                  <p className="truncate text-sm text-slate-600">{car.owner_name}</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openEditModal(car)}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCar(car.id, car.car_number)}
-                    disabled={deletingId === car.id}
-                    aria-label={`Delete car ${car.car_number}`}
-                    title="Delete car"
-                    className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-rose-600 text-sm text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {deletingId === car.id ? "…" : "🗑"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {(car.phone_numbers || []).map((phone, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3"
-                  >
-                    <span className="font-medium text-slate-900">{phone}</span>
-
-                    <div className="flex flex-shrink-0 gap-2">
-                      <a href={`tel:${phone}`} className="rounded-xl bg-emerald-500 px-3 py-2 text-sm text-white">
-                        Call
-                      </a>
-                      <a
-                        href={`https://wa.me/61${phone.substring(1)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white"
-                      >
-                        WhatsApp
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <CarCard
+              key={car.id}
+              car={car}
+              imageBaseUrl={imageBaseUrl}
+              isDeleting={deletingId === car.id}
+              onDelete={handleDeleteCar}
+              onEdit={openEditModal}
+              onPreview={handlePreviewImage}
+            />
           ))}
 
           {!loading && search && cars.length === 0 && (
             <div className="py-10 text-center text-slate-500">No cars found</div>
+          )}
+
+          {!loading && cars.length > 0 && hasMore && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => searchCars(search, { reset: false })}
+                disabled={loadingMore}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {loadingMore ? "Loading..." : "Load More"}
+              </button>
+            </div>
           )}
         </div>
       </section>

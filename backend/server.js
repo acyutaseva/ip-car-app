@@ -18,7 +18,16 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/cars", carRoutes);
-app.use("/uploads", express.static(path.resolve(__dirname, "uploads")));
+app.use(
+  "/uploads",
+  express.static(path.resolve(__dirname, "uploads"), {
+    maxAge: "30d",
+    immutable: true,
+    setHeaders: (res) => {
+      res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+    },
+  })
+);
 
 app.get("/", (req, res) => {
   res.send("API Running");

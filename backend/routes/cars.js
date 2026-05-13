@@ -324,6 +324,8 @@ router.get(
   async (req, res) => {
     try {
       const query = req.params.query.trim();
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 100);
+      const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
       const { rows: cars } = await db.query(
         `SELECT
           c.id,
@@ -335,12 +337,11 @@ router.get(
         LEFT JOIN phone_numbers p ON p.car_id = c.id
         WHERE UPPER(c.car_number) LIKE UPPER($1) OR UPPER(c.owner_name) LIKE UPPER($2)
         GROUP BY c.id, c.car_number, c.owner_name, c.photo
-        ORDER BY c.car_number ASC`,
-        [`%${query}%`, `%${query}%`]
+        ORDER BY c.car_number ASC
+        LIMIT $3
+        OFFSET $4`,
+        [`%${query}%`, `%${query}%`, limit, offset]
       );
-      if (cars.length === 0) {
-        return res.json([]);
-      }
       const result = cars.map((car) => {
         const { phone_numbers_joined, ...carData } = car;
         return {
@@ -349,7 +350,14 @@ router.get(
           phone_numbers: phone_numbers_joined ? phone_numbers_joined.split("||") : [],
         };
       });
-      res.json(result);
+      res.json({
+        data: result,
+        pagination: {
+          limit,
+          offset,
+          hasMore: cars.length === limit,
+        },
+      });
     } catch (error) {
       res.status(500).json({ message: "Server error" });
     }
