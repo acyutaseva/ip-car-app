@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import API from "../services/api";
+import API, { UPLOADS_BASE_URL } from "../services/api";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
-import { isAdminUser } from "../utils/auth";
+
+const parsePhoneInput = (value) =>
+  value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 export default function SearchCar() {
   const [search, setSearch] = useState("");
@@ -10,9 +15,16 @@ export default function SearchCar() {
   const [loading, setLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
   const [deletingId, setDeletingId] = useState(null);
-  const isAdmin = isAdminUser();
+  const [editingCar, setEditingCar] = useState(null);
+  const [editForm, setEditForm] = useState({
+    car_number: "",
+    owner_name: "",
+    phonesText: "",
+    photos: [],
+  });
+  const [saving, setSaving] = useState(false);
 
-  const imageBaseUrl = "http://localhost:5002/uploads";
+  const imageBaseUrl = UPLOADS_BASE_URL;
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("recentSearches")) || [];
@@ -64,6 +76,66 @@ export default function SearchCar() {
       alert("Failed to delete car");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const openEditModal = (car) => {
+    setEditingCar(car);
+    setEditForm({
+      car_number: car.car_number || "",
+      owner_name: car.owner_name || "",
+      phonesText: (car.phone_numbers || []).join(", "),
+      photos: [],
+    });
+  };
+
+  const closeEditModal = () => {
+    setEditingCar(null);
+    setEditForm({
+      car_number: "",
+      owner_name: "",
+      phonesText: "",
+      photos: [],
+    });
+    setSaving(false);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCar) {
+      return;
+    }
+
+    const phone_numbers = parsePhoneInput(editForm.phonesText);
+
+    if (!editForm.car_number.trim() || !editForm.owner_name.trim()) {
+      alert("Car number and owner name are required");
+      return;
+    }
+
+    if (phone_numbers.length === 0) {
+      alert("At least one phone number is required");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const formData = new FormData();
+      formData.append("car_number", editForm.car_number.trim().toUpperCase());
+      formData.append("owner_name", editForm.owner_name.trim());
+      formData.append("phone_numbers", JSON.stringify(phone_numbers));
+
+      editForm.photos.forEach((photo) => {
+        formData.append("photos", photo);
+      });
+
+      await API.put(`/cars/edit/${editingCar.id}`, formData);
+
+      await searchCars(search);
+      closeEditModal();
+    } catch (error) {
+      alert("Failed to update car");
+      setSaving(false);
     }
   };
 
@@ -130,7 +202,13 @@ export default function SearchCar() {
                   <p className="truncate text-sm text-slate-600">{car.owner_name}</p>
                 </div>
 
-                {isAdmin && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEditModal(car)}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => handleDeleteCar(car.id, car.car_number)}
                     disabled={deletingId === car.id}
@@ -140,7 +218,7 @@ export default function SearchCar() {
                   >
                     {deletingId === car.id ? "…" : "🗑"}
                   </button>
-                )}
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -175,6 +253,68 @@ export default function SearchCar() {
           )}
         </div>
       </section>
+
+      {editingCar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="mb-4 text-xl font-bold text-slate-900">Edit Car {editingCar.car_number}</h3>
+
+            <div className="space-y-3">
+              <input
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                placeholder="Car Number"
+                value={editForm.car_number}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, car_number: e.target.value }))}
+              />
+
+              <input
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                placeholder="Owner Name"
+                value={editForm.owner_name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, owner_name: e.target.value }))}
+              />
+
+              <textarea
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                rows={3}
+                placeholder="Phone numbers separated by comma or new line"
+                value={editForm.phonesText}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, phonesText: e.target.value }))}
+              />
+
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-700"
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, photos: Array.from(e.target.files || []) }))
+                }
+              />
+              <p className="text-xs text-slate-500">
+                Uploading new images will replace existing images for this car.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={closeEditModal}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white disabled:opacity-60"
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
