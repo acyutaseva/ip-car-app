@@ -286,11 +286,11 @@ router.post(
     // Refactored for PostgreSQL
     (async () => {
       for (const row of rows) {
-        if (!row.car_number || !row.owner_name || row.phones.length === 0) {
+        if (!row.car_number) {
           summary.failed += 1;
           summary.errors.push({
             row: row.rowNumber,
-            message: "Missing car_number, owner_name, or phone_numbers",
+            message: "Missing car_number",
           });
           continue;
         }
