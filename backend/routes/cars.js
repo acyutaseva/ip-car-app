@@ -445,7 +445,6 @@ router.get(
 router.delete(
   "/delete/:id",
   authMiddleware,
-  requireAdmin,
   async (req, res) => {
     try {
       const carId = req.params.id;
@@ -468,7 +467,6 @@ router.delete(
 router.put(
   "/edit/:id",
   authMiddleware,
-  requireAdmin,
   photosUpload,
   async (req, res) => {
     try {
