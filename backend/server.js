@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 const db = require("./database/db");
 // Ensure admin user exists on server start
@@ -17,7 +18,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/cars", carRoutes);
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static(path.resolve(__dirname, "uploads")));
 
 app.get("/", (req, res) => {
   res.send("API Running");
