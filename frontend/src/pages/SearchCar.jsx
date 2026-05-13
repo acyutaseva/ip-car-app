@@ -3,6 +3,7 @@ import API, { UPLOADS_BASE_URL } from "../services/api";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
 import CarCard from "../components/CarCard";
+import { getCurrentUsername } from "../utils/auth";
 
 const PAGE_SIZE = 12;
 
@@ -34,6 +35,7 @@ export default function SearchCar() {
   const searchAbortRef = useRef(null);
 
   const imageBaseUrl = UPLOADS_BASE_URL;
+  const username = getCurrentUsername();
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("recentSearches")) || [];
@@ -209,7 +211,7 @@ export default function SearchCar() {
   return (
     <div className="app-shell">
       <Navbar />
-      <Header title="Search Car" />
+      <Header title="Search Car" titleMeta={username ? `@${username}` : ""} />
 
       <section className="surface-panel rounded-3xl p-5 md:p-6">
         <input
