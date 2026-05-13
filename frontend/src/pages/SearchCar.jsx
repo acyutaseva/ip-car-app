@@ -108,7 +108,7 @@ export default function SearchCar() {
         <div className="space-y-4">
           {cars.map((car) => (
             <div key={car.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-              {(car.photos || []).length > 0 ? (
+              {(car.photos || []).length > 0 && (
                 <div className="mb-4 grid grid-cols-2 gap-2">
                   {car.photos.map((photoName, photoIndex) => (
                     <img
