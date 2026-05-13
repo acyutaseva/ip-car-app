@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import API from "../services/api";
 import Navbar from "../components/Navbar";
 import Header from "../components/Header";
@@ -8,6 +8,31 @@ export default function AddCar() {
   const [ownerName, setOwnerName] = useState("");
   const [phones, setPhones] = useState([""]);
   const [photos, setPhotos] = useState([]);
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
+  const appendPhotos = (newFiles) => {
+    if (!newFiles.length) {
+      return;
+    }
+
+    setPhotos((prev) => {
+      const existingKeys = new Set(
+        prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
+      );
+
+      const uniqueNewFiles = newFiles.filter((file) => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+        if (existingKeys.has(key)) {
+          return false;
+        }
+        existingKeys.add(key);
+        return true;
+      });
+
+      return [...prev, ...uniqueNewFiles];
+    });
+  };
 
   const handlePhoneChange = (index, value) => {
     const updated = [...phones];
@@ -36,6 +61,12 @@ export default function AddCar() {
       setOwnerName("");
       setPhones([""]);
       setPhotos([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      if (cameraInputRef.current) {
+        cameraInputRef.current.value = "";
+      }
     } catch (error) {
       alert("Error adding car");
     }
@@ -79,13 +110,35 @@ export default function AddCar() {
             + Add Another Number
           </button>
 
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            className="w-full rounded-xl border border-dashed border-slate-400 bg-white p-3 text-slate-700"
-            onChange={(e) => setPhotos(Array.from(e.target.files || []))}
-          />
+          <div className="space-y-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="w-full rounded-xl border border-dashed border-slate-400 bg-white p-3 text-slate-700"
+              onChange={(e) => {
+                appendPhotos(Array.from(e.target.files || []));
+                e.target.value = "";
+              }}
+            />
+
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="w-full rounded-xl border border-dashed border-blue-300 bg-blue-50 p-3 text-slate-700"
+              onChange={(e) => {
+                appendPhotos(Array.from(e.target.files || []));
+                e.target.value = "";
+              }}
+            />
+
+            <p className="text-xs text-slate-500">
+              Use the first field to attach files, or the second field to open camera.
+            </p>
+          </div>
 
           {photos.length > 0 && (
             <p className="text-sm text-slate-600">{photos.length} image(s) selected</p>
