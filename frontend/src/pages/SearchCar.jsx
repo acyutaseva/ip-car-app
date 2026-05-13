@@ -23,6 +23,7 @@ export default function SearchCar() {
     photos: [],
   });
   const [saving, setSaving] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
 
   const imageBaseUrl = UPLOADS_BASE_URL;
 
@@ -183,15 +184,26 @@ export default function SearchCar() {
               {(car.photos || []).length > 0 && (
                 <div className="mb-4 grid grid-cols-2 gap-2">
                   {car.photos.map((photoName, photoIndex) => (
-                    <img
+                    <button
                       key={`${car.id}-${photoName}-${photoIndex}`}
-                      src={`${imageBaseUrl}/${photoName}`}
-                      alt={`${car.car_number}-${photoIndex + 1}`}
-                      className="h-40 w-full rounded-2xl object-cover md:h-48"
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                      }}
-                    />
+                      type="button"
+                      onClick={() =>
+                        setPreviewImage({
+                          src: `${imageBaseUrl}/${photoName}`,
+                          alt: `${car.car_number}-${photoIndex + 1}`,
+                        })
+                      }
+                      className="overflow-hidden rounded-2xl"
+                    >
+                      <img
+                        src={`${imageBaseUrl}/${photoName}`}
+                        alt={`${car.car_number}-${photoIndex + 1}`}
+                        className="h-40 w-full object-cover transition hover:scale-[1.02] md:h-48"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    </button>
                   ))}
                 </div>
               )}
@@ -312,6 +324,29 @@ export default function SearchCar() {
                 {saving ? "Saving..." : "Save Changes"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPreviewImage(null)}
+              className="absolute right-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-lg text-white"
+              aria-label="Close image preview"
+            >
+              ✕
+            </button>
+            <img
+              src={previewImage.src}
+              alt={previewImage.alt}
+              className="max-h-[85vh] w-full rounded-2xl bg-black object-contain"
+            />
           </div>
         </div>
       )}
