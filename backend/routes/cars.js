@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const sharp = require("sharp");
 
 const router = express.Router();
 const uploadsDir = path.resolve(__dirname, "../uploads");
@@ -25,21 +26,11 @@ const requireAdmin = (req, res, next) => {
 // MULTER CONFIG
 //
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadsDir);
-  },
-
-  filename: function (req, file, cb) {
-    const uniqueName =
-      Date.now() + path.extname(file.originalname);
-
-    cb(null, uniqueName);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 12 * 1024 * 1024,
+  },
 });
 const csvUpload = multer({
   storage: multer.memoryStorage(),
@@ -75,18 +66,36 @@ const normalizePhotoList = (photoValue) => {
   return [];
 };
 
-const getUploadedPhotoNames = (files) => {
+const getUploadedPhotoFiles = (files) => {
   if (!files) {
     return [];
   }
 
   if (Array.isArray(files)) {
-    return files.map((file) => file.filename).filter(Boolean);
+    return files.filter(Boolean);
   }
 
-  return [...(files.photos || []), ...(files.photo || [])]
-    .map((file) => file.filename)
-    .filter(Boolean);
+  return [...(files.photos || []), ...(files.photo || [])].filter(Boolean);
+};
+
+const optimizeAndSavePhotos = async (files) => {
+  const uploadedFiles = getUploadedPhotoFiles(files);
+  const savedFileNames = [];
+
+  for (const file of uploadedFiles) {
+    const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
+    const filePath = path.join(uploadsDir, fileName);
+
+    await sharp(file.buffer)
+      .rotate()
+      .resize({ width: 1280, withoutEnlargement: true })
+      .webp({ quality: 80, effort: 4 })
+      .toFile(filePath);
+
+    savedFileNames.push(fileName);
+  }
+
+  return savedFileNames;
 };
 
 const parseCsvLine = (line) => {
@@ -182,7 +191,7 @@ router.post(
         });
       }
 
-      const photoList = getUploadedPhotoNames(req.files);
+      const photoList = await optimizeAndSavePhotos(req.files);
       const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
 
       const insertCar = await db.query(
@@ -316,24 +325,30 @@ router.get(
     try {
       const query = req.params.query.trim();
       const { rows: cars } = await db.query(
-        `SELECT * FROM cars WHERE UPPER(car_number) LIKE UPPER($1) OR UPPER(owner_name) LIKE UPPER($2) ORDER BY car_number ASC`,
+        `SELECT
+          c.id,
+          c.car_number,
+          c.owner_name,
+          c.photo,
+          STRING_AGG(p.phone_number, '||' ORDER BY p.id) AS phone_numbers_joined
+        FROM cars c
+        LEFT JOIN phone_numbers p ON p.car_id = c.id
+        WHERE UPPER(c.car_number) LIKE UPPER($1) OR UPPER(c.owner_name) LIKE UPPER($2)
+        GROUP BY c.id, c.car_number, c.owner_name, c.photo
+        ORDER BY c.car_number ASC`,
         [`%${query}%`, `%${query}%`]
       );
       if (cars.length === 0) {
         return res.json([]);
       }
-      const result = [];
-      for (const car of cars) {
-        const { rows: phones } = await db.query(
-          `SELECT phone_number FROM phone_numbers WHERE car_id = $1`,
-          [car.id]
-        );
-        result.push({
-          ...car,
+      const result = cars.map((car) => {
+        const { phone_numbers_joined, ...carData } = car;
+        return {
+          ...carData,
           photos: normalizePhotoList(car.photo),
-          phone_numbers: phones.map((p) => p.phone_number),
-        });
-      }
+          phone_numbers: phone_numbers_joined ? phone_numbers_joined.split("||") : [],
+        };
+      });
       res.json(result);
     } catch (error) {
       res.status(500).json({ message: "Server error" });
@@ -352,24 +367,29 @@ router.get(
   async (req, res) => {
     try {
       const { rows: cars } = await db.query(
-        `SELECT * FROM cars ORDER BY id DESC`,
+        `SELECT
+          c.id,
+          c.car_number,
+          c.owner_name,
+          c.photo,
+          STRING_AGG(p.phone_number, '||' ORDER BY p.id) AS phone_numbers_joined
+        FROM cars c
+        LEFT JOIN phone_numbers p ON p.car_id = c.id
+        GROUP BY c.id, c.car_number, c.owner_name, c.photo
+        ORDER BY c.id DESC`,
         []
       );
       if (cars.length === 0) {
         return res.json([]);
       }
-      const result = [];
-      for (const car of cars) {
-        const { rows: phones } = await db.query(
-          `SELECT phone_number FROM phone_numbers WHERE car_id = $1`,
-          [car.id]
-        );
-        result.push({
-          ...car,
+      const result = cars.map((car) => {
+        const { phone_numbers_joined, ...carData } = car;
+        return {
+          ...carData,
           photos: normalizePhotoList(car.photo),
-          phone_numbers: phones.map((p) => p.phone_number),
-        });
-      }
+          phone_numbers: phone_numbers_joined ? phone_numbers_joined.split("||") : [],
+        };
+      });
       res.json(result);
     } catch (error) {
       res.status(500).json({ message: "Server error" });
@@ -421,7 +441,7 @@ router.put(
       if (!existingCar) {
         return res.status(404).json({ message: "Car not found" });
       }
-      const uploadedPhotos = getUploadedPhotoNames(req.files);
+      const uploadedPhotos = await optimizeAndSavePhotos(req.files);
       const existingPhotos = normalizePhotoList(existingCar.photo);
       const photoList = uploadedPhotos.length > 0 ? uploadedPhotos : existingPhotos;
       const photos = photoList.length > 0 ? JSON.stringify(photoList) : null;
