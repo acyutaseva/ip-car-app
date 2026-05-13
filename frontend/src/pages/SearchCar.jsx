@@ -198,6 +198,8 @@ export default function SearchCar() {
                       <img
                         src={`${imageBaseUrl}/${photoName}`}
                         alt={`${car.car_number}-${photoIndex + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         className="h-40 w-full object-cover transition hover:scale-[1.02] md:h-48"
                         onError={(e) => {
                           e.currentTarget.style.display = "none";
