@@ -283,63 +283,48 @@ router.post(
       errors: [],
     };
 
-    const insertNext = (index) => {
-      if (index >= rows.length) {
-        return res.json({
-          message: "Bulk import complete",
-          summary,
-        });
-      }
+    // Refactored for PostgreSQL
+    (async () => {
+      for (const row of rows) {
+        if (!row.car_number || !row.owner_name || row.phones.length === 0) {
+          summary.failed += 1;
+          summary.errors.push({
+            row: row.rowNumber,
+            message: "Missing car_number, owner_name, or phone_numbers",
+          });
+          continue;
+        }
 
-      const row = rows[index];
+        try {
+          // Insert car
+          const carResult = await db.query(
+            "INSERT INTO cars (car_number, owner_name, photo) VALUES ($1, $2, $3) RETURNING id",
+            [row.car_number, row.owner_name, null]
+          );
+          const carId = carResult.rows[0].id;
 
-      if (!row.car_number || !row.owner_name || row.phones.length === 0) {
-        summary.failed += 1;
-        summary.errors.push({
-          row: row.rowNumber,
-          message: "Missing car_number, owner_name, or phone_numbers",
-        });
-        return insertNext(index + 1);
-      }
-
-      db.run(
-        "INSERT INTO cars (car_number, owner_name, photo) VALUES (?, ?, ?)",
-        [row.car_number, row.owner_name, null],
-        function (insertErr) {
-          if (insertErr) {
-            summary.failed += 1;
-            summary.errors.push({
-              row: row.rowNumber,
-              message: insertErr.message,
-            });
-            return insertNext(index + 1);
+          // Insert phone numbers
+          for (const phone of row.phones) {
+            await db.query(
+              "INSERT INTO phone_numbers (car_id, phone_number) VALUES ($1, $2)",
+              [carId, phone]
+            );
           }
 
-          const carId = this.lastID;
-          const stmt = db.prepare("INSERT INTO phone_numbers (car_id, phone_number) VALUES (?, ?)");
-
-          row.phones.forEach((phone) => {
-            stmt.run(carId, phone);
-          });
-
-          stmt.finalize((phoneErr) => {
-            if (phoneErr) {
-              summary.failed += 1;
-              summary.errors.push({
-                row: row.rowNumber,
-                message: phoneErr.message,
-              });
-              return insertNext(index + 1);
-            }
-
-            summary.inserted += 1;
-            return insertNext(index + 1);
+          summary.inserted += 1;
+        } catch (err) {
+          summary.failed += 1;
+          summary.errors.push({
+            row: row.rowNumber,
+            message: err.message,
           });
         }
-      );
-    };
-
-    return insertNext(0);
+      }
+      return res.json({
+        message: "Bulk import complete",
+        summary,
+      });
+    })();
   }
 );
 
